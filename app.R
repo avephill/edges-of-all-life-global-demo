@@ -55,6 +55,12 @@ ui <- fluidPage(
         choices = character(0),
       )
     )
+  ),
+
+  # Footer
+  div(
+    style = "padding: 10px; text-align: center; color: #666; font-size: 0.9em;",
+    "Data downloaded January 2025 form GBIF • Map only shows 10,000 points at a time"
   )
 )
 
