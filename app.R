@@ -30,7 +30,7 @@ ui <- fluidPage(
   ),
 
   # Title
-  titlePanel("Edges of All Life"),
+  titlePanel("Edges of All Life Global Demo"),
 
   # Map with controls overlay
   div(
