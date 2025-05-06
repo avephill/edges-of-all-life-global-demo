@@ -1,11 +1,10 @@
 library(shiny)
-library(leaflet)
+library(mapgl)
 library(duckdb)
 library(dplyr)
 library(dbplyr)
 library(shinyWidgets)
 library(stringr)
-library(leafgl)
 library(sf)
 library(tictoc)
 
@@ -36,7 +35,7 @@ ui <- fluidPage(
   # Map with controls overlay
   div(
     style = "position: relative;",
-    leafletOutput("map"),
+    maplibreOutput("map"),
 
     # Controls panel
     div(
@@ -50,10 +49,10 @@ ui <- fluidPage(
         ),
         selected = "is_max_lat"
       ),
-      pickerInput(
+      selectizeInput(
         inputId = "speciesFilter",
         label = "Filter by Species (optional):",
-        choices = NULL
+        choices = character(0),
       )
     )
   )
@@ -69,29 +68,25 @@ server <- function(input, output, session) {
   # Create tbl reference to the minmax table
   minmax_tbl <- tbl(con, "minmax")
 
-  # Get unique species list for dropdown
-  tic("Species list generation")
-  species_list <- minmax_tbl %>%
-    select(species) %>%
-    distinct() %>%
-    collect() %>%
-    pull(species) %>%
-    sort()
-  toc()
+  # Set up server-side species search
+  tic("Configure server-side species search")
+  # Initialize selectize with server-side processing
+  matching_species <- minmax_tbl %>%
+    distinct(species) %>%
+    pull(species)
 
-  print(paste("Total number of species:", length(species_list)))
-
-  # Initialize with empty choices
-  updatePickerInput(session, "speciesFilter",
-    choices = species_list,
-    selected = character(0),
-    # server = TRUE,
+  # Update the selectize choices
+  updateSelectizeInput(
+    session,
+    "speciesFilter",
+    choices = matching_species,
+    server = TRUE,
     options = list(
-      `liveSearch` = TRUE,
-      `maxOptions` = 20
+      placeholder = "Type to search...",
+      maxItems = 10,
+      maxOptions = 10
     )
   )
-
 
   # Reactive query to get points based on filters
   points_data <- reactive({
@@ -117,66 +112,81 @@ server <- function(input, output, session) {
 
     # Execute the query
     result <- query %>% collect()
-    print(paste("Number of points:", nrow(result)))
+    n_points <- nrow(result)
+    print(paste("Number of points:", n_points))
+
+    # Sample down if needed for performance
+    if (n_points > 10000) {
+      sample_size <- min(10000, n_points)
+      print(paste("Sampling down to", sample_size, "points for performance"))
+      result <- result %>% sample_n(sample_size)
+    }
+
     toc()
     result
   })
 
   # Render the map
-  output$map <- renderLeaflet({
-    leaflet() %>%
-      addProviderTiles("CartoDB.Positron") |>
-      setView(lng = 0, lat = 20, zoom = 2)
+  output$map <- renderMaplibre({
+    maplibre(style = carto_style("positron")) %>%
+      set_view(center = c(0, 20), zoom = 1) %>%
+      add_navigation_control(position = "top-left") %>%
+      add_scale_control(position = "bottom-left") %>%
+      add_fullscreen_control(position = "top-left")
   })
 
-  # Update map markers when data changes
+  # Update map when data changes
   observe({
     tic("Map update")
-    data <- points_data() %>%
-      st_as_sf(coords = c("lng", "lat"), crs = 4326, remove = FALSE)
+    # Get data and convert to SF
+    data <- points_data()
+    if (nrow(data) == 0) {
+      maplibre_proxy("map") %>%
+        clear_layer("points_layer")
+      toc()
+      return()
+    }
+
+    # Create popup content
+
+    data_sf <- st_as_sf(data, coords = c("lng", "lat"), crs = 4326, remove = FALSE) |>
+      mutate(
+        popup = paste0(
+          "<strong>Species:</strong> ", species, "<br>",
+          "<strong>Latitude:</strong> ", round(lat, 4), "<br>",
+          "<strong>Longitude:</strong> ", round(lng, 4), "<br>",
+          "<strong>Altitude:</strong> ", round(altitude, 1), " m"
+        )
+      )
 
     # Define color based on display type
     color <- switch(input$displayType,
-      "is_max_lat" = "red",
-      "is_min_lat" = "blue",
-      "is_max_alt" = "green",
-      "is_min_alt" = "purple"
+      "is_max_lat" = "#E63946", # Warm red for maximum latitude
+      "is_min_lat" = "#457B9D", # Cool blue for minimum latitude
+      "is_max_alt" = "#2A9D8F", # Teal for maximum altitude
+      "is_min_alt" = "#9B5DE5" # Purple for minimum altitude
     )
 
-    # Create popup content
-    popups <- paste0(
-      "<strong>Species:</strong> ", data$species, "<br>",
-      "<strong>Latitude:</strong> ", round(data$lat, 4), "<br>",
-      "<strong>Longitude:</strong> ", round(data$lng, 4), "<br>",
-      "<strong>Altitude:</strong> ", round(data$altitude, 1), " m<br>"
-    )
+    # Clear layers
+    map_proxy <- maplibre_proxy("map") %>%
+      clear_layer("points_layer")
 
-    leafletProxy("map", data = data) %>%
-      clearShapes() |>
-      clearMarkers() |>
-      # addCircleMarkers(
-      #   lng = ~lng,
-      #   lat = ~lat,
-      #   popup = popups,
-      #   radius = 5,
-      #   color = color,
-      #   stroke = FALSE,
-      #   fillOpacity = 0.7,
-      #   clusterOptions = markerClusterOptions(
-      #     # only cluster until zoom 5, then show raw points
-      #     disableClusteringAtZoom = 6,
-      #     maxClusterRadius       = 40
-      #   )
-      # )
-      addGlPoints(
-        data = data,
-        popup = popups,
-        radius = 5,
-        fillColor = color
+
+    # Add points layer with simplified approach - no clustering
+    map_proxy %>%
+      add_circle_layer(
+        id = "points_layer",
+        source = data_sf,
+        circle_color = color,
+        circle_radius = 5,
+        circle_opacity = 0.7,
+        circle_stroke_width = 1,
+        circle_stroke_color = "white",
+        popup = "popup"
       )
+
     toc()
   })
-
 
   # Close connection when app stops
   onSessionEnded(function() {
