@@ -7,6 +7,7 @@ library(shinyWidgets)
 library(stringr)
 library(sf)
 library(tictoc)
+library(shinycssloaders)
 
 
 # UI
@@ -35,7 +36,7 @@ ui <- fluidPage(
   # Map with controls overlay
   div(
     style = "position: relative;",
-    maplibreOutput("map"),
+    withSpinner(maplibreOutput("map"), type = 8, color = "#0dc5c1"),
 
     # Controls panel
     div(
@@ -53,6 +54,14 @@ ui <- fluidPage(
         inputId = "speciesFilter",
         label = "Filter by Species (optional):",
         choices = character(0),
+      ),
+      sliderInput(
+        inputId = "maxPoints",
+        label = "Maximum Points to Display:",
+        min = 1000,
+        max = 100000,
+        value = 10000,
+        step = 1000
       )
     )
   ),
@@ -60,7 +69,7 @@ ui <- fluidPage(
   # Footer
   div(
     style = "padding: 10px; text-align: center; color: #666; font-size: 0.9em;",
-    "Data downloaded January 2025 form GBIF • Map only shows 10,000 points at a time"
+    "iNaturalist data downloaded January 2025 from GBIF"
   )
 )
 
@@ -122,8 +131,8 @@ server <- function(input, output, session) {
     print(paste("Number of points:", n_points))
 
     # Sample down if needed for performance
-    if (n_points > 10000) {
-      sample_size <- min(10000, n_points)
+    if (n_points > input$maxPoints) {
+      sample_size <- min(input$maxPoints, n_points)
       print(paste("Sampling down to", sample_size, "points for performance"))
       result <- result %>% sample_n(sample_size)
     }
