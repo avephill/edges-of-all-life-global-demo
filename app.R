@@ -31,7 +31,15 @@ ui <- fluidPage(
   ),
 
   # Title
-  titlePanel("Edges of All Life Global Demo"),
+  div(
+    titlePanel("The Range Limits of All Species in iNaturalist"),
+    div(
+      style = "margin: 7px 0 15px 0; font-size: 1.2em; color: #666; line-height: 1.4;",
+      "A proof-of-concept, extending Brian Buma's ",
+      tags$a(href = "https://www.brianbuma.com/edges-of-all-life", "Edges of (All) Life", target = "_blank"),
+      " to a global scale and adding altitude."
+    )
+  ),
 
   # Map with controls overlay
   div(
@@ -53,7 +61,7 @@ ui <- fluidPage(
       selectizeInput(
         inputId = "speciesFilter",
         label = "Filter by Species (optional):",
-        choices = character(0),
+        choices = character(0)
       ),
       sliderInput(
         inputId = "maxPoints",
